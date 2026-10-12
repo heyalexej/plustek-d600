@@ -29,10 +29,12 @@ a release before rearming a held button and serializes all USB access.
 
 ## Image acquisition
 
-Each page is 2480 pixels wide at nominal 600 dpi. Grayscale samples are 8-bit;
+Each page is 2480 pixels wide at nominal 600 dpi; the experimental 300 dpi
+mode returns 1240 pixels. Grayscale samples are 8-bit;
 RGB is 24-bit packed, pixel-interleaved data. The hardware line counter counts
 `channels * sides` sensor lines per output row. The same factor determines
-buffer stride and the programmed sensor-line limit.
+buffer stride and the programmed sensor-line limit. The trailing allowance
+is 512 rows at 300 dpi, preserving the same physical distance.
 
 Register 16 bit 5 is cleared for the working sensor start-pulse polarity.
 The AFE uses SHA sampling, with its register 00 set to `60`. The dummy interval
@@ -63,7 +65,7 @@ Under the tested 30 MHz configuration, a line-period unit is approximately
 
 ```
 row_seconds = line_period * channels * sides * 400 ns
-motor_interval = line_period * channels * sides / 2
+motor_interval = line_period * channels * sides * dpi / 1200
 ```
 
 The latter preserves approximately two quarter-steps per 600 dpi image row.
@@ -86,8 +88,14 @@ Shorter exposures need matched analog gain, dark offsets and white calibration.
 The UI retains conservative timing until additional modes are validated.
 
 The 300 dpi configurations use period 1400 with different sensor timing and
-exposure settings. Merely halving DPISET is insufficient; 300 dpi acquisition
-is not implemented here. Manufacturer speeds for 300 dpi are linked in the
+exposure settings. The native driver now selects those profiles and halves the
+sensor window while retaining combined-readout DPISET at 600 * sides. This
+avoids applying a second digital decimation after the sensor mode already
+halves the sample count. Stationary RGB duplex at period 1400 returned 476160
+bytes for 64 paired rows (1240 pixels per page), with exactly 384 completed
+sensor lines, in 0.252 s including acquisition setup. The motor stayed disabled.
+No document was present in that stationary test: it verifies FIFO framing and
+counter behavior, not document geometry, brightness or full-width coverage. Manufacturer speeds for 300 dpi are linked in the
 README and cannot be used as a direct 600 dpi benchmark.
 
 The device's transport curve is described by start percentage 50, maximum
@@ -104,8 +112,13 @@ Intervals are clamped to the target scan interval after reaching that speed.
 The initial intervals are 3082, 1540, 1107, 912, 795, 715. For RGB duplex at
 period 2800 the target is 8400, so even the first curve entry is faster than
 the requested scan speed and the clamped table is constant. Faster grayscale
-transport may require the initial acceleration entries. The current native
-driver uses constant tables; it does not claim full acceleration handling.
+transport may require the initial acceleration entries. The native driver now builds this curve in `src/d600-timing.h`; tests check
+known initial interval vectors, monotonic acceleration and target clamping.
+Slow modes retain the proven 32-entry constant-speed setup. Faster modes use
+the number of entries needed to reach the target, for both acceleration and
+deceleration. The 300 dpi RGB duplex target is 2100 (two ramp entries), and the
+grayscale duplex target is 700 (seven entries). Moving 300 dpi scans remain
+experimental until paper geometry and quality are verified.
 
 Motor tables are uploaded to volatile RAM at `40000 + table * 8000` via
 registers 5b/5c. No firmware or EEPROM writes are performed. Stop clears scan,
@@ -114,7 +127,12 @@ SIGINT/SIGTERM take this cleanup path. Do not force-kill the process.
 
 Bounded tail ejection requires a clear input sensor and runs 1536 microsteps
 plus deceleration with a ten-second deadline. It is separate from image
-acquisition. Automatic scans are limited to 32768 logical rows per page;
+acquisition. `D600_FEED_PERIOD=1000` experimentally speeds up this operation
+with a four-entry ramp. An empty-feeder test completed 1540 counted steps,
+reported hardware completion and motor enable zero, and took 0.764 s from
+motor start through cleanup. That validates motion control without a document;
+paper ejection under load is not yet validated at this speed. The default feed
+period stays 10000. Automatic scans are limited to 32768 logical rows per page;
 incomplete transfers and missing paper ends do not produce a completed scan.
 
 ## Validation and remaining work

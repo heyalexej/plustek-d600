@@ -16,8 +16,13 @@ ui: all profiles
 test-ui:
 	node --test test/*.test.mjs
 
-test-native: artifacts/bin/test-image
+test-native: artifacts/bin/test-image artifacts/bin/test-timing
 	artifacts/bin/test-image
+	artifacts/bin/test-timing
+
+artifacts/bin/test-timing: test/timing.test.c src/d600-timing.h
+	mkdir -p artifacts/bin
+	$(CC) $(CPPFLAGS) $(CFLAGS) -std=c99 -Wall -Wextra -Werror $< -lm -o $@
 
 artifacts/bin/test-image: test/image.test.c src/d600-image.h
 	mkdir -p artifacts/bin
@@ -27,6 +32,6 @@ artifacts/bin/d600-probe: src/d600-probe.c
 	mkdir -p artifacts/bin
 	$(CC) $(CPPFLAGS) $(CFLAGS) -std=c99 -Wall -Wextra -Werror $(USB_CFLAGS) $< $(LDFLAGS) $(USB_LIBS) -o $@
 
-artifacts/bin/d600-experiment: src/d600-experiment.c src/d600-image.h
+artifacts/bin/d600-experiment: src/d600-experiment.c src/d600-image.h src/d600-timing.h
 	mkdir -p artifacts/bin
-	$(CC) $(CPPFLAGS) $(CFLAGS) -std=c99 -Wall -Wextra -Werror $(USB_CFLAGS) $< $(LDFLAGS) $(USB_LIBS) -o $@
+	$(CC) $(CPPFLAGS) $(CFLAGS) -std=c99 -Wall -Wextra -Werror $(USB_CFLAGS) $< $(LDFLAGS) $(USB_LIBS) -lm -o $@

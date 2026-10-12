@@ -12,6 +12,7 @@
 #include <string.h>
 #include <time.h>
 #include "d600-image.h"
+#include "d600-timing.h"
 
 static libusb_device_handle *usb;
 static volatile sig_atomic_t interrupted;
@@ -194,8 +195,9 @@ static int initialize(const char *prefix)
         if (pairs[i] >= sizeof(regs) || present[pairs[i]]) return -1;
         regs[pairs[i]] = pairs[i+1]; present[pairs[i]] = 1;
     }
-    if ((regs[1] != 0xa2 && regs[1] != 0xb2) || (regs[4] != 0x2a && regs[4] != 0x22) || regs[0x38] != 0x0a || regs[0x39] != 0xf0) {
-        fputs("Experiment requires SINGLE/DUPLEX Gray or Color 600 profile\n", stderr); return -1;
+    if ((regs[1] != 0xa2 && regs[1] != 0xb2) || (regs[4] != 0x2a && regs[4] != 0x22) ||
+        !((regs[0x38] == 0x0a && regs[0x39] == 0xf0) || (regs[0x38] == 0x05 && regs[0x39] == 0x78))) {
+        fputs("Experiment requires SINGLE/DUPLEX Gray or Color 300/600 profile\n", stderr); return -1;
     }
     { const char *text = getenv("D600_GAIN");
       if (text) {
@@ -210,7 +212,7 @@ static int initialize(const char *prefix)
     }
     /* Do not enable motor, lamp, gamma, shading, or scan while loading defaults. */
     regs[1] &= ~0x29; regs[2] = 0; regs[3] &= ~0x10; regs[5] &= ~8;
-    puts("Loading 600 dpi sensor defaults with motor disabled...");
+    puts("Loading sensor defaults with motor disabled...");
     for (i = 0; i < count; i += 2) {
         unsigned char address = pairs[i];
         if (interrupted || write_reg(address, regs[address])) return -1;
@@ -231,13 +233,16 @@ static int initialize(const char *prefix)
      * images. Do not present those zeroes as verified configuration values. */
     return status();
 }
-static int motor_tables(unsigned period)
+static int motor_tables(unsigned period, int accelerate)
 {
     unsigned char data[512], header[8] = {1, 0, 0, 0, 0, 2, 0, 0};
+    unsigned short curve[256];
     unsigned table, i;
-    puts("Uploading bounded constant-speed motor tables to volatile RAM...");
+    if (accelerate) d600_motor_curve(curve, period);
+    puts("Uploading bounded motor tables to volatile RAM...");
     for (i = 0; i < sizeof(data); i += 2) {
-        data[i] = period & 255; data[i+1] = period >> 8;
+        unsigned interval = accelerate ? curve[i / 2] : period;
+        data[i] = interval & 255; data[i+1] = interval >> 8;
     }
     /* Volatile motor RAM: 0x40000 + table * 0x8000. */
     for (table = 0; table < 5; ++table) {
@@ -264,10 +269,24 @@ static int feed(int reverse, int tail)
 {
     const unsigned target = tail ? 1536 : 256;
     const unsigned timeout = tail ? 10 : 3;
+    unsigned period = 10000, ramp = 32;
     unsigned char sensor, high, middle, low, flags;
     unsigned steps = 0;
     double deadline;
     int finished = 0;
+    { const char *text = getenv("D600_FEED_PERIOD");
+      if (text) {
+        char *end;
+        unsigned long value = strtoul(text, &end, 10);
+        unsigned short curve[256];
+        if (!*text || *end || value < 700 || value > 10000) {
+            fputs("D600_FEED_PERIOD must be 700..10000\n", stderr); return -1;
+        }
+        period = (unsigned)value;
+        ramp = d600_motor_curve(curve, period);
+        if (ramp == 1) ramp = 32;
+      }
+    }
     if (read_reg(0x41, &sensor)) return -1;
     if (tail && !(sensor & 8)) {
         fputs("Tail ejection requires the paper's trailing edge to have cleared the sensor\n", stderr); return -1;
@@ -275,15 +294,15 @@ static int feed(int reverse, int tail)
     if (!tail && (sensor & 8)) {
         fputs("No paper at feed sensor; feed refused\n", stderr); return -1;
     }
-    if (motor_tables(10000)) return -1;
-    /* Quarter-step mode: register 67=bf; 32 constant ramp entries, no backtracking.
-     * This is an experimental short feed, not a recovered calibrated speed curve. */
+    if (motor_tables(period, 1)) return -1;
+    /* Quarter-step mode, bounded travel and matched acceleration/deceleration. */
     if (write_reg(1, regs[1] & ~1) || write_reg(2, reverse ? 0x54 : 0x50) ||
-        write_reg(0x21, 32) || write_reg(0x22, 0) || write_reg(0x23, 0) ||
-        write_reg(0x24, 32) || write_reg(0x69, 32) || write_reg(0x6a, 32) ||
-        write_reg(0x5f, 32) || write_be(0x25, 0, 3) ||
+        write_reg(0x21, ramp) || write_reg(0x22, 0) || write_reg(0x23, 0) ||
+        write_reg(0x24, ramp) || write_reg(0x69, ramp) || write_reg(0x6a, ramp) ||
+        write_reg(0x5f, ramp) || write_be(0x25, 0, 3) ||
         write_be(0x60, 0, 3) || write_be(0x63, 0, 3) ||
-        write_be(0x3d, target - 32, 3) || write_reg(0x0d, 5)) return -1;
+        write_be(0x3d, target - ramp, 3) || write_reg(0x0d, 5)) return -1;
+    printf("Feed timing: period=%u ramp=%u\n", period, ramp);
     printf("Feeding %s: %u programmed microsteps plus deceleration (%u-second deadline)...\n",
            reverse ? "backward" : "forward", target, timeout);
     if (write_reg(0x0f, 1)) return -1;
@@ -307,7 +326,9 @@ static int feed(int reverse, int tail)
 }
 static int acquire(const char *path, int moving, int automatic)
 {
-    const unsigned width = 2480;
+    const unsigned dpi = regs[0x38] == 0x05 ? 300 : 600;
+    const unsigned width = dpi == 300 ? 1240 : 2480;
+    const unsigned tail_rows = dpi == 300 ? 512 : 1024;
     const unsigned channels = (regs[4] & 0x0c) ? 1 : 3;
     const unsigned sides = (regs[1] & 0x10) ? 2 : 1;
     const unsigned sensor_lines = channels * sides;
@@ -319,8 +340,8 @@ static int acquire(const char *path, int moving, int automatic)
     double deadline, capture_started = 0;
     FILE *file = NULL;
     int result = -1;
-    unsigned period = moving || channels == 3 ? 20000 : 2800;
-    unsigned exposure = 0, x_start = 80;
+    unsigned period = moving || channels == 3 ? 20000 : (dpi == 300 ? 1400 : 2800);
+    unsigned exposure = 0, x_start = dpi == 300 ? 40 : 80;
     unsigned filter = channels == 3 ? 0 : 2, side = 1, lamps = 3;
     const char *lines_text = getenv("D600_LINES");
     if (lines_text) {
@@ -349,8 +370,8 @@ static int acquire(const char *path, int moving, int automatic)
     if (period_text) {
         char *end;
         unsigned long parsed = strtoul(period_text, &end, 10);
-        if (!*period_text || *end || parsed < 2800 || parsed > 60000) {
-            fputs("D600_LINE_PERIOD must be 2800..60000\n", stderr); free(data); return -1;
+        if (!*period_text || *end || parsed < (dpi == 300 ? 1400UL : 2800UL) || parsed > 60000) {
+            fputs("D600_LINE_PERIOD must be at least the profile period and at most 60000\n", stderr); free(data); return -1;
         }
         period = (unsigned)parsed;
     }
@@ -389,19 +410,23 @@ static int acquire(const char *path, int moving, int automatic)
             fputs("No paper at feed sensor; scan refused\n", stderr); goto done;
         }
         /* Keep transport distance per image row constant when changing speed. */
-        unsigned motor_period = (period * sensor_lines) / 2;
+        unsigned motor_period = (period * sensor_lines * dpi) / 1200;
+        unsigned short curve[256];
+        unsigned ramp = d600_motor_curve(curve, motor_period);
+        if (ramp == 1) ramp = 32; /* Preserve the proven slow-mode transport setup. */
         if (motor_period > 65535) {
             fputs("Line period exceeds the motor table range\n", stderr); goto done;
         }
         printf("Scan timing: line_period=%u motor_period=%u channels=%u sides=%u\n",
                period, motor_period, channels, sides);
-        if (motor_tables(motor_period) || write_reg(0x21, 32) || write_reg(0x22, 0) ||
-            write_reg(0x23, 0) || write_reg(0x24, 32) || write_reg(0x69, 32) ||
-            write_reg(0x6a, 32) || write_reg(0x5f, 32) ||
+        printf("Resolution=%u dpi; ramp=%u steps\n", dpi, ramp);
+        if (motor_tables(motor_period, 1) || write_reg(0x21, ramp) || write_reg(0x22, 0) ||
+            write_reg(0x23, 0) || write_reg(0x24, ramp) || write_reg(0x69, ramp) ||
+            write_reg(0x6a, ramp) || write_reg(0x5f, ramp) ||
             write_be(0x60, 0, 3) || write_be(0x63, 0, 3)) goto done;
     }
     printf("Capturing up to %u lines; motor %s...\n", lines, moving ? "enabled" : "disabled");
-    if (automatic) puts("Automatic document scan: waiting for trailing edge, then 1024 image rows of transport allowance.");
+    if (automatic) printf("Automatic document scan: waiting for trailing edge, then %u image rows of transport allowance.\n", tail_rows);
     printf("Experimental line period=%u filter=%u side=%u lamps=%u\n", period, filter, side, lamps);
     printf("Horizontal sensor window=%u..%u\n", x_start, x_start + width);
     if (exposure) {
@@ -475,9 +500,9 @@ static int acquire(const char *path, int moving, int automatic)
                 }
                 if (empty_count >= 3) {
                     /* Sensor is upstream of the imaging line. Include a generous
-                     * 1024 rows (~43 mm) after its edge, and preserve 512-byte
+                     * about 43 mm of image rows after its edge, and preserve 512-byte
                      * USB alignment by rounding the target to 64 image rows. */
-                    end_line = ((edge_line + 1024 + 63) / 64) * 64;
+                    end_line = ((edge_line + tail_rows + 63) / 64) * 64;
                     if (end_line < lines) goal_bytes = end_line * stride;
                     printf("Paper end confirmed: sensor_row=%u finish_row=%u\n", edge_line, end_line);
                 }

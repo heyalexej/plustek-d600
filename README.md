@@ -111,7 +111,11 @@ node tools/benchmark.mjs --period 12000 --exposure 10000 --gain 0 \
 
 The tool records acquisition time separately from setup and ejection. Shorter
 periods require matching exposure, gain and motor timing. They are experiments,
-not validated quality presets. See [timing notes](docs/protocol.md).
+not validated quality presets. Experimental 300 dpi profiles are available
+through the CLI (`--dpi 300 --period 1400` in the benchmark tool); only stationary
+RGB duplex acquisition has been checked so far. Moving document geometry and
+quality still need testing. `--feed-period 1000` selects the faster experimental
+paper ejection. See [timing notes](docs/protocol.md).
 
 ## Tests
 
@@ -127,7 +131,7 @@ button handling, settings persistence and translation coverage.
 ## Project layout
 
 - `src/`: native driver and USB probe.
-- `profiles/`: four 600 dpi hardware configurations and binary companions.
+- `profiles/`: 600 dpi configurations and experimental 300 dpi configurations and binary companions.
 - `ui/`: local English/German web interface and lossless PNG conversion.
 - `tools/`: profile builder, benchmark runner and Linux identification helper.
 - `docs/protocol.md`: USB framing, image layout, timing and current limitations.

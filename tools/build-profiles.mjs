@@ -4,10 +4,10 @@ import { fileURLToPath } from 'node:url';
 console.time('build-profiles');
 try {
   const directory = new URL('../profiles/', import.meta.url);
-  for (const name of readdirSync(directory).filter(name => /^native-.*600\.json$/.test(name))) {
+  for (const name of readdirSync(directory).filter(name => /^native-.*(?:300|600)\.json$/.test(name))) {
     const path = fileURLToPath(new URL(name, directory));
     const profile = JSON.parse(readFileSync(path));
-    if (profile.device !== '07b3:0c27' || profile.revision !== '0500' || profile.dpi !== 600) throw new Error(`Unsupported profile: ${name}`);
+    if (profile.device !== '07b3:0c27' || profile.revision !== '0500' || ![300, 600].includes(profile.dpi)) throw new Error(`Unsupported profile: ${name}`);
     const registers = Object.entries(profile.registers), afe = Object.entries(profile.afe);
     if (registers.length !== 100 || afe.length !== 8) throw new Error(`Incomplete profile: ${name}`);
     for (const [entries, limit, maxValue] of [[registers, 192, 255], [afe, 48, 65535]]) {
