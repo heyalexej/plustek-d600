@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { english, translate, chooseLanguage } from '../ui/i18n.mjs';
 
-test('language follows the browser until explicitly selected', () => {
-  assert.equal(chooseLanguage(null, 'de-AT'), 'de');
-  assert.equal(chooseLanguage(null, 'fr-FR'), 'en');
-  assert.equal(chooseLanguage('en', 'de-DE'), 'en');
+test('interface defaults to English and remembers explicit language selection', () => {
+  assert.equal(chooseLanguage(null), 'en');
+  assert.equal(chooseLanguage('invalid'), 'en');
+  assert.equal(chooseLanguage('en'), 'en');
+  assert.equal(chooseLanguage('de'), 'de');
   assert.equal(translate('en', 'Scan vom {date}', {date: '12/10'}), 'Scan from 12/10');
   assert.equal(translate('de', 'Scan vom {date}', {date: '12.10.'}), 'Scan vom 12.10.');
 });

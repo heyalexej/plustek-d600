@@ -17,6 +17,7 @@ async function fixture(t, mode = 'success') {
     const root = __dirname, args = process.argv.slice(2), mode = ${JSON.stringify(mode)};
     if (args[0] === '--scan-auto') {
       fs.writeFileSync(path.join(root, 'scan-args.json'), JSON.stringify(args));
+      fs.writeFileSync(path.join(root, 'scan-env.json'), JSON.stringify(Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith('D600_')))));
       if (mode === 'empty') { console.error('No paper at feed sensor; scan refused'); process.exit(1); }
       if (mode === 'limit') {
         fs.writeFileSync(args[2] + '.raw', Buffer.from([128, 128]));
@@ -27,7 +28,7 @@ async function fixture(t, mode = 'success') {
         console.log('Scan rows: 5000 end=0'); setInterval(() => {}, 100);
       } else {
         const height = mode === 'long' ? 12000 : 2;
-        const color = args[1].endsWith('color600.json');
+        const color = args[1].endsWith('color300.json') || args[1].endsWith('color600.json');
         fs.writeFileSync(args[2], Buffer.concat([Buffer.from((color ? 'P6' : 'P5') + '\\n2 ' + height + '\\n255\\n'), Buffer.alloc(2 * height * (color ? 3 : 1), 128)]));
         if (args[1].includes('native-duplex-') && mode !== 'missing-back') {
           fs.writeFileSync(args[2].replace(/\\.(pgm|ppm)$/, '-back.$1'), Buffer.concat([Buffer.from((color ? 'P6' : 'P5') + '\\n2 ' + height + '\\n255\\n'), Buffer.alloc(2 * height * (color ? 3 : 1), 64)]));
@@ -40,7 +41,10 @@ async function fixture(t, mode = 'success') {
       const irq = read('irq', '00');
       fs.rmSync(path.join(root, 'irq'), {force: true});
       console.log(' 01=80 41=' + (empty ? 'd8' : 'd0') + ' button=' + read('button', '0') + ' irq=' + irq);
-    } else if (args[0] === '--eject-tail') { fs.writeFileSync(path.join(root, 'ejected'), 'yes'); }
+    } else if (args[0] === '--eject-tail') {
+      fs.writeFileSync(path.join(root, 'ejected'), 'yes');
+      fs.writeFileSync(path.join(root, 'eject-period'), process.env.D600_FEED_PERIOD || '10000');
+    }
   `);
   let app, base;
   const start = async () => {
@@ -133,6 +137,7 @@ test('parallel scan is rejected; stop signals the existing process and releases 
   assert.equal((await f.post('/api/scan')).status, 409);
   assert.equal((await f.post('/api/mode?mode=color')).status, 409);
   assert.equal((await f.post('/api/sides?sides=duplex')).status, 409);
+  assert.equal((await f.post('/api/preset?preset=fast')).status, 409);
   assert.equal((await f.post('/api/stop')).status, 202);
   const state = await until(f.state, value => value.job?.phase === 'cancelled' && !value.busy);
   assert.ok(existsSync(join(f.root, 'stopped'))); assert.equal(state.scans.length, 0);
@@ -177,13 +182,13 @@ test('physical button starts once per press, accepts short IRQ pulses, and ignor
   assert.equal((await f.state()).job.id, first.job.id, 'held button must not repeat');
   set('button', '0');
   await until(f.state, value => !value.device.button);
-  assert.equal((await f.post('/api/mode?mode=color')).status, 200);
-  assert.equal((await f.post('/api/sides?sides=duplex')).status, 200);
+  assert.equal((await f.post('/api/preset?preset=fast')).status, 200);
   set('irq', '04');
   const second = await until(f.state, value => value.job?.phase === 'done' && value.job.id !== first.job.id);
   assert.equal(second.job.source, 'button');
   assert.equal(second.job.mode, 'color');
   assert.equal(second.job.duplex, true);
+  assert.equal(second.job.dpi, 300);
   assert.equal(second.scans[0].pages.length, 2);
   set('paper', '0');
   await until(f.state, value => !value.device.paper);
@@ -212,7 +217,7 @@ for (const mode of ['gray', 'color']) test(`duplex ${mode} publishes distinct pa
   assert.match(download.headers.get('content-disposition'), /-back\./);
   const raw = Buffer.from(await download.arrayBuffer()); assert.equal(raw[raw.length - 1], 64);
   await f.restart();
-  assert.deepEqual((await f.state()).settings, { mode, duplex: true });
+  assert.deepEqual((await f.state()).settings, { mode, duplex: true, preset: 'standard' });
   assert.equal((await fetch(`${f.base}/scans/${state.job.id}-back.png`)).status, 200);
 });
 
@@ -225,4 +230,32 @@ test('a missing duplex page never publishes a one-sided success', async t => {
   assert.equal(state.scans.length, 0);
   assert.equal((await fetch(`${f.base}/scans/${state.job.id}.png`)).status, 404);
   await f.restart(); assert.equal((await f.state()).scans.length, 0);
+});
+
+test('fast preset persists, uses validated 300 dpi timing and returns to conservative 600 dpi', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.post('/api/preset?preset=invalid')).status, 400);
+  assert.equal((await f.post('/api/preset?preset=fast')).status, 200);
+  await f.restart();
+  assert.deepEqual((await f.state()).settings, { mode: 'color', duplex: true, preset: 'fast' });
+  assert.equal((await f.post('/api/scan')).status, 202);
+  const state = await until(f.state, value => value.job?.phase === 'done');
+  const read = name => JSON.parse(readFileSync(join(f.root, name)));
+  assert.ok(read('scan-args.json')[1].endsWith('/profiles/native-duplex-color300.json'));
+  assert.equal(read('scan-env.json').D600_LINE_PERIOD, '1400');
+  assert.equal(read('scan-env.json').D600_GAIN, '49');
+  assert.equal(read('scan-env.json').D600_EXPOSURE, undefined, 'use separate profile RGB exposures');
+  assert.equal(readFileSync(join(f.root, 'eject-period'), 'utf8'), '1000');
+  assert.equal(state.scans[0].dpi, 300);
+  assert.equal(state.scans[0].pages.length, 2);
+  assert.equal((await fetch(`${f.base}/scans/${state.job.id}-back.png`)).status, 200);
+  assert.equal((await f.post('/api/mode?mode=gray')).status, 200);
+  assert.equal((await f.state()).settings.preset, 'standard', 'unvalidated fast combinations must fall back');
+  assert.equal((await f.post('/api/scan')).status, 202);
+  const standard = await until(f.state, value => value.job?.phase === 'done' && value.job.id !== state.job.id);
+  assert.equal(standard.scans[0].dpi, 600);
+  assert.equal(read('scan-env.json').D600_LINE_PERIOD, '20000');
+  assert.equal(read('scan-env.json').D600_EXPOSURE, '10000');
+  assert.equal(read('scan-env.json').D600_GAIN, '0');
+  assert.equal(readFileSync(join(f.root, 'eject-period'), 'utf8'), '10000');
 });

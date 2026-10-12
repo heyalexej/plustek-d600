@@ -5,12 +5,13 @@ Plustek MobileOffice D600**, USB `07b3:0c27`, revision `0500`.
 
 Scan receipts and small documents without a Windows host. The driver is C99
 with libusb; the optional web interface is plain JavaScript and Node.js with no
-npm dependencies. It offers **English and German**, selected automatically from
-the browser or with the language menu.
+npm dependencies. It defaults to **English**, with **German** available in the
+language menu. Explicit language selections are remembered.
 
 ## What works
 
 - 600 dpi grayscale and 24-bit RGB, single-sided and double-sided.
+- Fast 300 dpi RGB duplex preset, tested with a complete receipt.
 - Both sides in one pass, with separate previews and PNG / PGM / PPM downloads.
 - Variable document length, paper-end detection and bounded tail ejection.
 - Start from the interface or the physical Scan button; stop with motor cleanup.
@@ -48,11 +49,13 @@ Prebuilt profile data is included, so a legacy Linux host only needs the C tool
 and libusb to scan. A modern browser UI host is optional. On older Linux systems
 where clock_gettime requires librt, use `make LDFLAGS=-lrt`.
 
-Open **http://127.0.0.1:8765**. Choose color and sides, insert the document straight,
+Open **http://127.0.0.1:8765**. Choose a scan preset, insert the document straight,
 face down, close the lid and press **Start scan** or the button on the scanner.
 For double-sided scans, Front is the face inserted down; Back is the other face.
 Use the page buttons to choose the side to download. Language changes do not
-change the scan settings.
+change the scan settings. The fast preset uses 300 dpi color on both sides.
+The standard preset provides the existing 600 dpi color and side choices.
+The physical button uses the same selected preset.
 
 The UI binds to loopback only. Run one scanner process at a time. Stop the UI
 before using the command-line driver or benchmark tool.
@@ -90,32 +93,41 @@ successful images. These checks are not comprehensive mechanical jam detection.
 
 ## Speed experiments
 
-The default UI still uses conservative timing. A 600 dpi RGB duplex test of the
-same short receipt captured 3904 rows per side in **112.9 s** at line period
-12000 versus **188.2 s** start-to-stop at period 20000. Exposure remained 10000,
-gain zero, both faces were complete and tail ejection succeeded. This is about
-**1.67× faster**, with comparable brightness on this test piece.
+The fast UI preset completed a full receipt in **6.908 s acquisition** at
+300 dpi RGB duplex, producing two **1240 × 2048** images. Both complete paper
+outlines and readable text were checked. Scan process time was **7.647 s**;
+setup, acquisition and fast ejection together took **8.779 s** in the CLI
+benchmark. UI PNG conversion adds some processing time. This was one document
+on one scanner, not a standardized benchmark or full color calibration.
+A second scan started with the physical button through the UI completed
+2112 rows per face in **7.122 s**, including complete images and fast ejection.
 
-The manufacturer's published speeds are for **300 dpi**, not our 600 dpi mode:
+The earlier conservative 600 dpi scan of this receipt took **188.2 s**;
+a period-12000 experiment took **112.9 s**. The new result is about **27× faster
+than the original scan**, but also uses half the resolution on each axis.
+This is a workflow comparison, not an equal-resolution speed comparison.
+
+The manufacturer's published speeds are for **300 dpi**:
 3.1 s single-sided / 6.5 s double-sided color; 1.1 s / 1.7 s grayscale in the
 [D600 manual](https://downloads.plustek.com/downloads/english/user_guide/D600-userguide-english.pdf).
 A [later catalog](https://downloads.plustek.com/downloads/english/leaflet/ALLAE-03010.pdf)
-explicitly specifies A6 and gives 1.3 s for single-sided grayscale.
+explicitly specifies A6 and gives 1.3 s for single-sided grayscale. Our 6.908 s
+color-duplex capture is close to that rating, but the test receipt and timing
+boundaries are not identical to the manufacturer's benchmark.
 
-Reproduce a bounded experiment after stopping the UI and inserting paper:
+Reproduce the tested preset after stopping the UI and inserting paper:
 
 ```sh
-node tools/benchmark.mjs --period 12000 --exposure 10000 --gain 0 \
-  --mode color --duplex --output captures/benchmark/fast-color
+node tools/benchmark.mjs --dpi 300 --period 1400 --gain 49 \
+  --mode color --duplex --feed-period 1000 \
+  --output captures/benchmark/fast-color
 ```
 
-The tool records acquisition time separately from setup and ejection. Shorter
-periods require matching exposure, gain and motor timing. They are experiments,
-not validated quality presets. Experimental 300 dpi profiles are available
-through the CLI (`--dpi 300 --period 1400` in the benchmark tool); only stationary
-RGB duplex acquisition has been checked so far. Moving document geometry and
-quality still need testing. `--feed-period 1000` selects the faster experimental
-paper ejection. See [timing notes](docs/protocol.md).
+The fast profile retains separate RGB exposure values and uses a corrected
+sensor clock waveform. Gain 49 was checked on this test piece; white balance
+and shading are still uncalibrated. Other 300 dpi combinations remain CLI-only
+experiments and have not passed complete document image validation. The UI
+only offers the tested RGB duplex combination. See [timing notes](docs/protocol.md).
 
 ## Tests
 

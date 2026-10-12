@@ -1,7 +1,7 @@
 import { translate, chooseLanguage } from './i18n.mjs';
 const $ = id => document.getElementById(id);
 let selected = null, scanSignature = '', previousJob = null, requesting = false, lastState = null;
-let language = chooseLanguage(localStorage.getItem('d600-language'), navigator.language);
+let language = chooseLanguage(localStorage.getItem('d600-language'));
 let selectedSide = 'front';
 const t = (message, values) => translate(language, message, values);
 const locale = () => language === 'de' ? 'de-DE' : 'en-GB';
@@ -18,7 +18,7 @@ function selectScan(scan, scans, side = 'front') {
   $('page-front').setAttribute('aria-pressed', String(side !== 'back'));
   $('page-back').setAttribute('aria-pressed', String(side === 'back'));
   $('scan-name').textContent = scan.reference ? t(scan.name) : t('Scan vom {date}', {date: formatDate(scan.createdAt)});
-  $('scan-date').textContent = `${formatDate(scan.createdAt)} · ${scan.mode === 'color' ? t('Farbe') : t('Graustufen')}${scan.duplex ? ` · ${t('Beidseitig')}` : ''} · PNG · ${t('Originalauflösung')}`;
+  $('scan-date').textContent = `${formatDate(scan.createdAt)} · ${scan.dpi || 600} dpi · ${scan.mode === 'color' ? t('Farbe') : t('Graustufen')}${scan.duplex ? ` · ${t('Beidseitig')}` : ''} · PNG · ${t('Originalauflösung')}`;
   for (const [id, extension] of [['download', 'png'], ['raw-download', scan.mode === 'color' ? 'ppm' : 'pgm']]) {
     $(id).href = `/scans/${fileId}.${extension}?download=1`;
     $(id).download = `d600-${fileId}.${extension}`; $(id).hidden = false;
@@ -45,13 +45,18 @@ function render(state) {
   $('paper-status').textContent = t(state.device.message);
   $('paper-dot').classList.toggle('ready', state.device.connected && state.device.paper);
   $('scan').disabled = requesting || state.busy || !state.device.connected;
-  $('scan-mode').disabled = requesting || state.busy;
-  $('scan-sides').disabled = requesting || state.busy;
+  const fast = state.settings?.preset === 'fast';
+  $('scan-preset').disabled = requesting || state.busy;
+  $('scan-mode').disabled = requesting || state.busy || fast;
+  $('scan-sides').disabled = requesting || state.busy || fast;
+  if (!requesting) $('scan-preset').value = state.settings?.preset || 'standard';
+  $('dpi-label').textContent = fast ? '300 dpi' : '600 dpi';
+  $('fast-note').hidden = !fast;
   if (!requesting) $('scan-mode').value = state.settings?.mode || 'gray';
   if (!requesting) $('scan-sides').value = state.settings?.duplex ? 'duplex' : 'simplex';
   $('mode-label').textContent = state.settings?.mode === 'color' ? t('Farbe · RGB') : t('Graustufen');
-  $('color-note').hidden = state.settings?.mode !== 'color';
-  $('duplex-note').hidden = !state.settings?.duplex;
+  $('color-note').hidden = fast || state.settings?.mode !== 'color';
+  $('duplex-note').hidden = fast || !state.settings?.duplex;
   $('sides-label').textContent = state.settings?.duplex ? t('Beidseitig') : t('Einseitig');
   $('stop').disabled = !state.busy || state.job?.cancelled;
   $('scan').querySelector('span').textContent = state.busy ? t('Scan läuft …') : t('Scan starten');
@@ -105,6 +110,7 @@ async function command(action) {
 $('scan').onclick = () => command('scan');
 $('scan-mode').onchange = () => command(`mode?mode=${encodeURIComponent($('scan-mode').value)}`);
 $('scan-sides').onchange = () => command(`sides?sides=${encodeURIComponent($('scan-sides').value)}`);
+$('scan-preset').onchange = () => command(`preset?preset=${encodeURIComponent($('scan-preset').value)}`);
 for (const side of ['front', 'back']) $(`page-${side}`).onclick = () => {
   const scan = lastState?.scans.find(item => item.id === selected);
   if (scan) selectScan(scan, lastState.scans, side);

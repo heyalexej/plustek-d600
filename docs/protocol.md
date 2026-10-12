@@ -117,8 +117,8 @@ known initial interval vectors, monotonic acceleration and target clamping.
 Slow modes retain the proven 32-entry constant-speed setup. Faster modes use
 the number of entries needed to reach the target, for both acceleration and
 deceleration. The 300 dpi RGB duplex target is 2100 (two ramp entries), and the
-grayscale duplex target is 700 (seven entries). Moving 300 dpi scans remain
-experimental until paper geometry and quality are verified.
+grayscale duplex target is 700 (seven entries). RGB duplex at 300 dpi has now
+completed a full document test; other 300 dpi combinations remain unvalidated.
 
 Motor tables are uploaded to volatile RAM at `40000 + table * 8000` via
 registers 5b/5c. No firmware or EEPROM writes are performed. Stop clears scan,
@@ -130,10 +130,33 @@ plus deceleration with a ten-second deadline. It is separate from image
 acquisition. `D600_FEED_PERIOD=1000` experimentally speeds up this operation
 with a four-entry ramp. An empty-feeder test completed 1540 counted steps,
 reported hardware completion and motor enable zero, and took 0.764 s from
-motor start through cleanup. That validates motion control without a document;
-paper ejection under load is not yet validated at this speed. The default feed
-period stays 10000. Automatic scans are limited to 32768 logical rows per page;
+motor start through cleanup. A subsequent complete 300 dpi RGB duplex scan
+also completed paper ejection at this speed, with 1540 counted steps, hardware
+completion and motor enable zero. The fast UI preset uses period 1000; the
+standard preset and standalone feed default remain 10000.
+Automatic scans are limited to 32768 logical rows per page;
 incomplete transfers and missing paper ends do not produce a completed scan.
+
+### Complete 300 dpi RGB duplex test
+
+A stationary paper test exposed a clock-waveform problem in the initial 300 dpi
+RGB duplex profile: most of the page was dark despite correct FIFO byte counts.
+Increasing analog gain clipped a narrow strip without restoring full-width
+coverage. The working profile uses CK1 waveform registers 75/76 = 007e and
+register 16 = 14, together with the existing 300 dpi clock selection. Other
+300 dpi profiles have not been changed without a corresponding image test.
+
+At line period 1400, retain RGB exposures 1184/1183/1088 and use AFE gain 49.
+The full moving test returned 2048 paired rows (1240 pixels per face),
+15,237,120 raw bytes, in 6.908 s acquisition. The scan process took 7.647 s;
+setup, scan and fast tail ejection took 8.779 s combined. Both paper outlines
+were complete, both sides readable and colors visible. Pixel geometry has
+not been calibrated against a ruler at 300 dpi. Fine shading stripes and a
+color cast remain; gain is an empirical preset for this device, not automatic
+white calibration. This profile is exposed as the fast UI preset and also
+applies to physical-button scans. The standard preset retains 600 dpi timing.
+A subsequent real physical-button scan through the UI captured 2112 paired
+rows in 7.122 s, published both complete images and completed fast ejection.
 
 ## Validation and remaining work
 
@@ -144,11 +167,12 @@ On one original D600 connected to Intel macOS:
 - Both modes started with the physical button, completed tail ejection and
   exposed both image previews and downloads through the local UI.
 - A faster RGB duplex scan at period 12000 preserved the full document.
+- A 300 dpi RGB duplex scan at period 1400 preserved both complete sides in 6.908 s.
 - Native pixel tests and isolated UI tests cover separation, mirroring,
   file validation, button handling and cancellation.
 
 Unvalidated: Linux USB runtime, other hardware revisions, precision duplex/RGB
-geometry, higher-speed quality, comprehensive jam detection, shading and color
+geometry, other fast scan modes, comprehensive jam detection, shading and color
 calibration. Full-width duplex RGB at the current row limit buffers about
 488 MB of raw data; a memory-constrained legacy Linux target will need a lower
 limit or a streaming implementation. `D600_LINES` can lower the cap; reaching

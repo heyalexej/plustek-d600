@@ -1,5 +1,10 @@
 // German source strings are stable keys shared by the UI and local API.
 export const english = {
+  'Ungültiges Scanprofil.': 'Invalid scan preset.',
+  'Scanprofil': 'Scan preset',
+  '600 dpi · Standard': '600 dpi · Standard',
+  '300 dpi · Schnell, Farbe, beidseitig': '300 dpi · Fast, color, double-sided',
+  'Schneller Belegscan in Farbe, beide Seiten. Farbabgleich noch experimentell.': 'Fast color receipt scan, both sides. Color calibration is still experimental.',
   'PORT muss zwischen 1024 und 65535 liegen.': 'PORT must be between 1024 and 65535.',
   'Ungültiges Scanformat.': 'Invalid scan format.', 'Unvollständiges Scanbild.': 'Incomplete scan image.',
   'Scanner Startseite': 'Scanner home', 'DEIN LOKALER SCANNER': 'YOUR LOCAL SCANNER',
@@ -78,6 +83,6 @@ export function translate(language, message, values = {}) {
   const template = language === 'en' ? (english[message] ?? message) : message;
   return template.replace(/\{(\w+)\}/g, (match, key) => values[key] ?? match);
 }
-export function chooseLanguage(saved, browserLanguage = 'en') {
-  return ['de', 'en'].includes(saved) ? saved : browserLanguage.toLowerCase().startsWith('de') ? 'de' : 'en';
+export function chooseLanguage(saved) {
+  return ['de', 'en'].includes(saved) ? saved : 'en';
 }
