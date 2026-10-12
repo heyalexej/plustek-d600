@@ -232,21 +232,22 @@ test('a missing duplex page never publishes a one-sided success', async t => {
   await f.restart(); assert.equal((await f.state()).scans.length, 0);
 });
 
-test('fast preset persists, uses validated 300 dpi timing and returns to conservative 600 dpi', async t => {
+for (const [preset, dpi, period, gain] of [['fast', 300, '1400', '49'], ['fast600', 600, '2800', '47']])
+test(`fast ${dpi} dpi preset persists, uses tested timing and returns to conservative 600 dpi`, async t => {
   const f = await fixture(t);
   assert.equal((await f.post('/api/preset?preset=invalid')).status, 400);
-  assert.equal((await f.post('/api/preset?preset=fast')).status, 200);
+  assert.equal((await f.post(`/api/preset?preset=${preset}`)).status, 200);
   await f.restart();
-  assert.deepEqual((await f.state()).settings, { mode: 'color', duplex: true, preset: 'fast' });
+  assert.deepEqual((await f.state()).settings, { mode: 'color', duplex: true, preset });
   assert.equal((await f.post('/api/scan')).status, 202);
   const state = await until(f.state, value => value.job?.phase === 'done');
   const read = name => JSON.parse(readFileSync(join(f.root, name)));
-  assert.ok(read('scan-args.json')[1].endsWith('/profiles/native-duplex-color300.json'));
-  assert.equal(read('scan-env.json').D600_LINE_PERIOD, '1400');
-  assert.equal(read('scan-env.json').D600_GAIN, '49');
+  assert.ok(read('scan-args.json')[1].endsWith(`/profiles/native-duplex-color${dpi}.json`));
+  assert.equal(read('scan-env.json').D600_LINE_PERIOD, period);
+  assert.equal(read('scan-env.json').D600_GAIN, gain);
   assert.equal(read('scan-env.json').D600_EXPOSURE, undefined, 'use separate profile RGB exposures');
   assert.equal(readFileSync(join(f.root, 'eject-period'), 'utf8'), '1000');
-  assert.equal(state.scans[0].dpi, 300);
+  assert.equal(state.scans[0].dpi, dpi);
   assert.equal(state.scans[0].pages.length, 2);
   assert.equal((await fetch(`${f.base}/scans/${state.job.id}-back.png`)).status, 200);
   assert.equal((await f.post('/api/mode?mode=gray')).status, 200);

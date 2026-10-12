@@ -21,7 +21,7 @@ export function createScannerServer({ root = resolve(uiDirectory, '..'),
     const saved = JSON.parse(readFileSync(settingsPath, 'utf8'));
     if (['gray', 'color'].includes(saved.mode)) state.settings.mode = saved.mode;
     if (typeof saved.duplex === 'boolean') state.settings.duplex = saved.duplex;
-    if (saved.preset === 'fast') Object.assign(state.settings, { preset: 'fast', mode: 'color', duplex: true });
+    if (['fast', 'fast600'].includes(saved.preset)) Object.assign(state.settings, { preset: saved.preset, mode: 'color', duplex: true });
   } catch (error) { if (error.code !== 'ENOENT') console.error('Einstellungen:', error.message); }
   const files = new Map();
   let operation = null, child = null, probe = null, shuttingDown = false;
@@ -50,7 +50,7 @@ export function createScannerServer({ root = resolve(uiDirectory, '..'),
       createdAt: statSync(referencePng).mtime.toISOString(), reference: true }, referencePng, referencePgm);
   }
 
-  function run(args, { timeout = 12000, log = null, progress = null, rowProgress = null, fast = false } = {}) {
+  function run(args, { timeout = 12000, log = null, progress = null, rowProgress = null, preset = 'standard' } = {}) {
     return new Promise((resolveRun, reject) => {
       if (child) return reject(new Error('Scanner ist bereits belegt.'));
       const label = `scanner:${args[0]}:${randomUUID().slice(0, 6)}`;
@@ -59,9 +59,10 @@ export function createScannerServer({ root = resolve(uiDirectory, '..'),
       for (const name of Object.keys(env)) if (name.startsWith('D600_')) delete env[name];
       Object.assign(env, { D600_LINE_PERIOD: '20000',
         D600_EXPOSURE: '10000', D600_GAIN: '0', D600_FILTER: '2', D600_SIDE: '1', D600_LAMPS: '3' });
-      if (fast) {
+      if (preset !== 'standard') {
         delete env.D600_EXPOSURE;
-        Object.assign(env, { D600_LINE_PERIOD: '1400', D600_GAIN: '49', D600_FEED_PERIOD: '1000' });
+        Object.assign(env, { D600_LINE_PERIOD: preset === 'fast600' ? '2800' : '1400',
+          D600_GAIN: preset === 'fast600' ? '47' : '49', D600_FEED_PERIOD: '1000' });
       }
       const processHandle = spawn(driver, [...driverArgs, ...args], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
       child = processHandle;
@@ -151,7 +152,7 @@ export function createScannerServer({ root = resolve(uiDirectory, '..'),
     const color = job.mode === 'color', rawPath = `${path}.${color ? 'ppm' : 'pgm'}`;
     const scanProfile = join(root, `profiles/native-${job.duplex ? 'duplex-' : ''}${color ? 'color' : 'gray'}${job.dpi}.json`);
     try {
-      const result = await run(['--scan-auto', scanProfile, rawPath], { timeout: (color ? 840000 : 300000) * (job.duplex ? 2 : 1), log, fast: job.preset === 'fast',
+      const result = await run(['--scan-auto', scanProfile, rawPath], { timeout: (color ? 840000 : 300000) * (job.duplex ? 2 : 1), log, preset: job.preset,
         rowProgress: (rows, end) => {
           job.rows = rows; job.progress = end ? Math.min(99, Math.floor(rows / end * 100)) : null;
           job.phase = 'scanning'; job.message = end ? 'Papierende erkannt. Rest wird gescannt …' : 'Beleg wird gescannt. Warte auf das Papierende …';
@@ -185,7 +186,7 @@ export function createScannerServer({ root = resolve(uiDirectory, '..'),
       let message = state.device.connected ? 'Scan gespeichert. Papier ist noch im Einzug.' : 'Scan gespeichert. Scannerverbindung prüfen.';
       if (state.device.connected && !state.device.paper) {
         job.phase = 'ejecting'; job.message = 'Scan gespeichert. Papier wird ausgegeben …';
-        const ejected = await run(['--eject-tail', profile], { timeout: 15000, log, fast: job.preset === 'fast' });
+        const ejected = await run(['--eject-tail', profile], { timeout: 15000, log, preset: job.preset });
         message = ejected.code === 0 ? 'Scan fertig. Papiernachlauf abgeschlossen.' : 'Scan gespeichert. Papiernachlauf wurde nicht abgeschlossen.';
       }
       job.phase = job.cancelled ? 'cancelled' : 'done';
@@ -236,9 +237,9 @@ export function createScannerServer({ root = resolve(uiDirectory, '..'),
             settings.duplex = sides === 'duplex';
           } else {
             const preset = url.searchParams.get('preset');
-            if (!['standard', 'fast'].includes(preset)) return json(response, 400, { error: 'Ungültiges Scanprofil.' });
+            if (!['standard', 'fast', 'fast600'].includes(preset)) return json(response, 400, { error: 'Ungültiges Scanprofil.' });
             settings.preset = preset;
-            if (preset === 'fast') Object.assign(settings, { mode: 'color', duplex: true });
+            if (preset !== 'standard') Object.assign(settings, { mode: 'color', duplex: true });
           }
           if (settings.mode !== 'color' || !settings.duplex) settings.preset = 'standard';
           writeFileSync(settingsPath, JSON.stringify(settings) + '\n');

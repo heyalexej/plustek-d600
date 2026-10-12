@@ -158,6 +158,22 @@ applies to physical-button scans. The standard preset retains 600 dpi timing.
 A subsequent real physical-button scan through the UI captured 2112 paired
 rows in 7.122 s, published both complete images and completed fast ejection.
 
+### Complete fast 600 dpi RGB duplex test
+
+With the existing 600 dpi sensor profile, line period 2800, separate RGB
+exposures 2304/2175/2048 and AFE gain 47, a complete receipt produced two
+2480 × 3968 pages (59,043,840 raw bytes). Acquisition took 26.798 s; the scan
+process took 28.333 s; setup, scan and fast ejection took 29.435 s combined.
+Motor interval was 8400. Both complete paper outlines were visible and text
+was readable. Saturated channel samples were below 0.1% on each face; a color
+cast and shading stripes remain. This is about seven times faster than the
+original conservative scan at the same nominal resolution.
+
+The UI exposes this as a separate fast 600 dpi RGB duplex preset. It retains
+the original standard 600 dpi mode and the faster 300 dpi preset. Both fast
+presets use tail-ejection period 1000 and the selected preset also applies
+to the physical scan button. Fast grayscale and simplex modes remain untested.
+
 ## Validation and remaining work
 
 On one original D600 connected to Intel macOS:

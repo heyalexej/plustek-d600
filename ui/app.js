@@ -45,12 +45,12 @@ function render(state) {
   $('paper-status').textContent = t(state.device.message);
   $('paper-dot').classList.toggle('ready', state.device.connected && state.device.paper);
   $('scan').disabled = requesting || state.busy || !state.device.connected;
-  const fast = state.settings?.preset === 'fast';
+  const fast = ['fast', 'fast600'].includes(state.settings?.preset);
   $('scan-preset').disabled = requesting || state.busy;
   $('scan-mode').disabled = requesting || state.busy || fast;
   $('scan-sides').disabled = requesting || state.busy || fast;
   if (!requesting) $('scan-preset').value = state.settings?.preset || 'standard';
-  $('dpi-label').textContent = fast ? '300 dpi' : '600 dpi';
+  $('dpi-label').textContent = state.settings?.preset === 'fast' ? '300 dpi' : '600 dpi';
   $('fast-note').hidden = !fast;
   if (!requesting) $('scan-mode').value = state.settings?.mode || 'gray';
   if (!requesting) $('scan-sides').value = state.settings?.duplex ? 'duplex' : 'simplex';

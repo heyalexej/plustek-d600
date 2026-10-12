@@ -4,6 +4,7 @@ export const english = {
   'Scanprofil': 'Scan preset',
   '600 dpi · Standard': '600 dpi · Standard',
   '300 dpi · Schnell, Farbe, beidseitig': '300 dpi · Fast, color, double-sided',
+  '600 dpi · Schnell, Farbe, beidseitig': '600 dpi · Fast, color, double-sided',
   'Schneller Belegscan in Farbe, beide Seiten. Farbabgleich noch experimentell.': 'Fast color receipt scan, both sides. Color calibration is still experimental.',
   'PORT muss zwischen 1024 und 65535 liegen.': 'PORT must be between 1024 and 65535.',
   'Ungültiges Scanformat.': 'Invalid scan format.', 'Unvollständiges Scanbild.': 'Incomplete scan image.',

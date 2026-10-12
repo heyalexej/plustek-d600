@@ -11,7 +11,7 @@ language menu. Explicit language selections are remembered.
 ## What works
 
 - 600 dpi grayscale and 24-bit RGB, single-sided and double-sided.
-- Fast 300 dpi RGB duplex preset, tested with a complete receipt.
+- Fast 300 and 600 dpi RGB duplex presets, tested with complete receipts.
 - Both sides in one pass, with separate previews and PNG / PGM / PPM downloads.
 - Variable document length, paper-end detection and bounded tail ejection.
 - Start from the interface or the physical Scan button; stop with motor cleanup.
@@ -53,7 +53,8 @@ Open **http://127.0.0.1:8765**. Choose a scan preset, insert the document straig
 face down, close the lid and press **Start scan** or the button on the scanner.
 For double-sided scans, Front is the face inserted down; Back is the other face.
 Use the page buttons to choose the side to download. Language changes do not
-change the scan settings. The fast preset uses 300 dpi color on both sides.
+change the scan settings. Both fast presets scan color on both sides, at
+300 or 600 dpi respectively.
 The standard preset provides the existing 600 dpi color and side choices.
 The physical button uses the same selected preset.
 
@@ -99,8 +100,15 @@ outlines and readable text were checked. Scan process time was **7.647 s**;
 setup, acquisition and fast ejection together took **8.779 s** in the CLI
 benchmark. UI PNG conversion adds some processing time. This was one document
 on one scanner, not a standardized benchmark or full color calibration.
-A second scan started with the physical button through the UI completed
-2112 rows per face in **7.122 s**, including complete images and fast ejection.
+A second scan started with the physical button through the UI acquired
+2112 rows per face in **7.122 s**. Both complete images were saved and fast
+ejection completed afterward.
+
+The **600 dpi fast preset** acquired two **2480 × 3968** pages in **26.798 s**.
+Scan process time was **28.333 s**; including fast ejection the CLI benchmark
+took **29.435 s**. Both paper outlines were complete and text was readable.
+That is about **7× faster at the same resolution** than the original 188.2 s
+600 dpi scan. It uses line period 2800, profile RGB exposures and gain 47.
 
 The earlier conservative 600 dpi scan of this receipt took **188.2 s**;
 a period-12000 experiment took **112.9 s**. The new result is about **27× faster
@@ -121,13 +129,18 @@ Reproduce the tested preset after stopping the UI and inserting paper:
 node tools/benchmark.mjs --dpi 300 --period 1400 --gain 49 \
   --mode color --duplex --feed-period 1000 \
   --output captures/benchmark/fast-color
+
+# Same-resolution speedup at 600 dpi:
+node tools/benchmark.mjs --dpi 600 --period 2800 --gain 47 \
+  --mode color --duplex --feed-period 1000 \
+  --output captures/benchmark/fast-color600
 ```
 
-The fast profile retains separate RGB exposure values and uses a corrected
-sensor clock waveform. Gain 49 was checked on this test piece; white balance
-and shading are still uncalibrated. Other 300 dpi combinations remain CLI-only
+The fast profiles retain separate RGB exposure values; the 300 dpi profile
+also uses a corrected sensor clock waveform. The gains were checked on this
+test piece; white balance and shading are still uncalibrated. Other 300 dpi combinations remain CLI-only
 experiments and have not passed complete document image validation. The UI
-only offers the tested RGB duplex combination. See [timing notes](docs/protocol.md).
+only offers fast presets for the tested RGB duplex combination. See [timing notes](docs/protocol.md).
 
 ## Tests
 
