@@ -1,0 +1,19 @@
+# Keep experiments, scan contents and local investigation files out of the repository.
+/*
+!/.gitignore
+!/LICENSE
+!/Makefile
+!/README.md
+!/src/
+!/ui/
+!/test/
+!/profiles/
+!/docs/
+/docs/*
+!/docs/protocol.md
+!/tools/
+/tools/*
+!/tools/build-profiles.mjs
+!/tools/benchmark.mjs
+!/tools/probe-linux.sh
+.DS_Store

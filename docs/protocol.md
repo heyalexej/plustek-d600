@@ -1,0 +1,137 @@
+# D600 protocol and timing notes
+
+## Device and transport
+
+Tested identity: original MobileOffice D600, USB `07b3:0c27`, bcdDevice `0500`.
+Interface 0 exposes bulk IN `81`, bulk OUT `02`, and interrupt IN `83`.
+Register behavior is compatible with the GL843 controller family. The physical
+chip identity has not been verified by opening the scanner.
+
+Control transfers use vendor request types `40` (OUT) and `c0` (IN), request
+`0c` for a one-byte payload and `04` otherwise. Register reads select the
+address with value `83`, await acknowledgement using `8e` / index `20`, then
+read with value `84`. Writes send address/value pairs through value `83`.
+RAM transfers use value `82` and an eight-byte header with a 32-bit
+little-endian length at bytes 4..7. Image FIFO selection is address `45`.
+
+A register read interrupts a pending RAM read on this device. Automatic scanning
+therefore completes 64 paired image rows before checking paper status, then
+selects the FIFO and issues a fresh RAM read. Each block is 512-byte aligned.
+Register 41 bit 3 is clear when paper is present; it is meaningful after
+initialization. Three consecutive empty readings debounce the trailing edge.
+The driver retains 1024 image rows after the first confirmed edge and rounds
+the capture length up to 64 rows. This includes the distance from the input
+sensor to both image heads.
+
+GPIO register 6d bit 2 is an active-low Scan button. Interrupt event `04` also
+indicates a button press; paper event `20` must not start a scan. The UI requires
+a release before rearming a held button and serializes all USB access.
+
+## Image acquisition
+
+Each page is 2480 pixels wide at nominal 600 dpi. Grayscale samples are 8-bit;
+RGB is 24-bit packed, pixel-interleaved data. The hardware line counter counts
+`channels * sides` sensor lines per output row. The same factor determines
+buffer stride and the programmed sensor-line limit.
+
+Register 16 bit 5 is cleared for the working sensor start-pulse polarity.
+The AFE uses SHA sampling, with its register 00 set to `60`. The dummy interval
+is `43 + 2 * (register 1d & 31)`: 47 for simplex and 57 for duplex.
+Empty shading tables and gamma are bypassed. This restores usable brightness
+and full sensor width, but does not supply a white reference calibration.
+
+Duplex register differences include 01=`b2`, 05=`48`, 0c=`09`, 1d=`07`,
+59=`32`. DPISET is 1200 for combined duplex readout; each head still delivers
+600 dpi optical samples. SEL3INV (9e bit 6) is clear in duplex mode.
+
+A duplex row comprises two blocks A and B, each `2480 * channels` bytes:
+
+- Grayscale front: B; back: A mirrored horizontally.
+- RGB front pixel: `(B.R, A.G, B.B)`.
+- RGB back pixel: `(A.R, B.G, A.B)`, then mirror by whole pixels.
+
+Front is the face inserted down. Both head margins are retained independently;
+the heads have a vertical offset and there is no automatic registration or
+rotation. `src/d600-image.h` implements only separation and mirroring, without
+resampling. Both output files must validate before the UI publishes a duplex
+scan. The `.raw` sidecar retains the original combined stream.
+
+## Timing and transport
+
+Under the tested 30 MHz configuration, a line-period unit is approximately
+`12 / 30 MHz = 400 ns`. One logical output row takes:
+
+```
+row_seconds = line_period * channels * sides * 400 ns
+motor_interval = line_period * channels * sides / 2
+```
+
+The latter preserves approximately two quarter-steps per 600 dpi image row.
+A motor table interval is a 16-bit value. The driver rejects values that exceed
+65535. The scan clock and motor must change together, otherwise vertical
+geometry changes. This relationship was checked by matching document outlines
+at periods 20000 and 12000, but is not a metrological calibration.
+
+At period 20000, gain zero and RGB exposures 10000, a short full color duplex
+scan captured 3904 rows per face in 188.202 s from scan-enable to stop. At period
+12000 with the same exposure/gain, the same row count took 112.942 s including
+the register setup immediately before scan-enable. Both front and back showed
+complete paper outlines and comparable brightness. Tail ejection completed.
+Different insertion positions may change the retained leading blank margin.
+
+The 600 dpi device configuration specifies period 2800 and separate RGB
+exposures 2304, 2175, 2048. For the same 3904 rows, 2800 would imply 26.24 s of
+sensor time. This is a timing calculation, **not a validated scan result**.
+Shorter exposures need matched analog gain, dark offsets and white calibration.
+The UI retains conservative timing until additional modes are validated.
+
+The 300 dpi configurations use period 1400 with different sensor timing and
+exposure settings. Merely halving DPISET is insufficient; 300 dpi acquisition
+is not implemented here. Manufacturer speeds for 300 dpi are linked in the
+README and cannot be used as a direct 600 dpi benchmark.
+
+The device's transport curve is described by start percentage 50, maximum
+full-step rate 5680 and exponent parameter 210. With 256 entries and quarter
+steps, its speed model is:
+
+```
+v[i] = floor((5680 * 4) * (i / 255) ** (100 / 210)), i = 1..255
+v[0] = max(1, floor(v[1] * 0.5))
+interval[i] = floor(2500000 / v[i])
+```
+
+Intervals are clamped to the target scan interval after reaching that speed.
+The initial intervals are 3082, 1540, 1107, 912, 795, 715. For RGB duplex at
+period 2800 the target is 8400, so even the first curve entry is faster than
+the requested scan speed and the clamped table is constant. Faster grayscale
+transport may require the initial acceleration entries. The current native
+driver uses constant tables; it does not claim full acceleration handling.
+
+Motor tables are uploaded to volatile RAM at `40000 + table * 8000` via
+registers 5b/5c. No firmware or EEPROM writes are performed. Stop clears scan,
+motor and illumination enables and checks that the motor-enable status is zero.
+SIGINT/SIGTERM take this cleanup path. Do not force-kill the process.
+
+Bounded tail ejection requires a clear input sensor and runs 1536 microsteps
+plus deceleration with a ten-second deadline. It is separate from image
+acquisition. Automatic scans are limited to 32768 logical rows per page;
+incomplete transfers and missing paper ends do not produce a completed scan.
+
+## Validation and remaining work
+
+On one original D600 connected to Intel macOS:
+
+- Full grayscale duplex receipt: two 2480 × 3968 pages, both edges visible.
+- Full color duplex receipt: two 2480 × 3904 pages, both edges visible.
+- Both modes started with the physical button, completed tail ejection and
+  exposed both image previews and downloads through the local UI.
+- A faster RGB duplex scan at period 12000 preserved the full document.
+- Native pixel tests and isolated UI tests cover separation, mirroring,
+  file validation, button handling and cancellation.
+
+Unvalidated: Linux USB runtime, other hardware revisions, precision duplex/RGB
+geometry, higher-speed quality, comprehensive jam detection, shading and color
+calibration. Full-width duplex RGB at the current row limit buffers about
+488 MB of raw data; a memory-constrained legacy Linux target will need a lower
+limit or a streaming implementation. `D600_LINES` can lower the cap; reaching
+it before the paper end is deliberately reported as an incomplete scan.

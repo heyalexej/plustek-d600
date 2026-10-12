@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f5f1">
+  <title>D600 · Scanner</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Scanner Startseite"><span class="brand-icon" aria-hidden="true">▤</span> paper<span class="brand-dot">.</span></a>
+    <div class="header-actions"><div class="local"><span class="local-dot"></span> DEIN LOKALER SCANNER</div><select id="language" aria-label="Language / Sprache"><option value="de">Deutsch</option><option value="en">English</option></select></div>
+  </header>
+  <main>
+    <section class="controls" aria-label="Scanner-Steuerung">
+      <div class="eyebrow">VOM PAPIER AUF DEN BILDSCHIRM</div>
+      <h1>Papier rein.<br><span>Scan bereit.</span></h1>
+      <p class="intro">Einlegen, scannen, speichern.<br>Deine Dokumente bleiben auf diesem Rechner.</p>
+      <div class="device-card">
+        <div class="device-top"><div class="scanner-icon" aria-hidden="true"><i></i></div><span id="connection" class="connection">Verbinden …</span></div>
+        <h2>MobileOffice D600</h2>
+        <p class="device-maker">PLUSTEK</p>
+        <div class="specs"><span>600 dpi</span><span id="mode-label">Graustufen</span><span id="sides-label">Einseitig</span></div>
+        <div class="divider"></div>
+        <label class="mode-picker" for="scan-mode">Farbmodus<select id="scan-mode" disabled><option value="gray">Graustufen</option><option value="color">Farbe · RGB</option></select></label>
+        <label class="mode-picker" for="scan-sides">Seiten<select id="scan-sides" disabled><option value="simplex">Einseitig</option><option value="duplex">Beidseitig</option></select></label>
+        <p id="duplex-note" class="mode-note" hidden>Beide Seiten in einem Durchlauf. Vorderseite nach unten einlegen. Dauert etwa doppelt so lange.</p>
+        <p id="color-note" class="mode-note" hidden>Farbscans dauern etwa dreimal so lange. Farbabgleich noch experimentell.</p>
+        <div class="paper-state"><span id="paper-dot" class="status-dot"></span><span id="paper-status">Scanner wird verbunden …</span></div>
+        <button id="scan" class="scan-button" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8V4h4M15 4h4v4M19 16v4h-4M9 20H5v-4M3 12h18"/></svg><span>Scan starten</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+        <button id="stop" class="stop-button" disabled><span aria-hidden="true">■</span> Stoppen</button>
+        <div id="job-panel" class="job-panel" hidden>
+          <div class="progress-heading"><span id="phase">Vorbereiten</span><span id="percent">0 %</span></div>
+          <progress id="progress" max="100" value="0" aria-label="Scanfortschritt"></progress>
+        </div>
+        <p id="message" class="message" role="status" aria-live="polite"></p>
+      </div>
+      <div class="how-to"><span class="info-icon" aria-hidden="true">i</span><p>Motiv nach unten, Papier gerade einlegen und den Deckel schließen. Bis 105 mm breit; die Länge wird automatisch erkannt.</p></div>
+      <div class="duration"><span aria-hidden="true">◷</span> Start auch mit dem Scan-Knopf am Gerät.</div>
+    </section>
+    <section class="workspace" aria-label="Scanvorschau">
+      <div class="preview-heading"><div><span class="eyebrow">DEIN DOKUMENT</span><h2 id="preview-title">Vorschau</h2></div><span id="image-dimensions" class="dimensions"></span></div>
+      <div id="page-picker" class="page-picker" role="group" aria-label="Scanseite auswählen" hidden><button id="page-front" type="button" aria-pressed="true" title="Beim Einlegen nach unten">Vorderseite</button><button id="page-back" type="button" aria-pressed="false" title="Beim Einlegen nach oben">Rückseite</button></div>
+      <div class="preview-area" id="preview-area">
+        <div id="empty" class="empty"><div class="empty-paper" aria-hidden="true"><span></span><span></span><span></span></div><h3>Hier landet dein nächster Scan.</h3><p>Lege ein Blatt ein und klicke auf „Scan starten“.</p></div>
+        <img id="preview" alt="Vorschau des gescannten Dokuments" hidden>
+        <div id="scan-overlay" class="scan-overlay" hidden><span class="spinner" aria-hidden="true"></span><span>Dein Scan entsteht …</span></div>
+      </div>
+      <div class="preview-footer"><div><span id="scan-name">Noch kein Scan ausgewählt</span><small id="scan-date">PNG · Originalauflösung</small></div><div class="download-actions"><a id="raw-download" class="raw-download" hidden>Rohdaten</a><a id="download" class="download" hidden>PNG speichern <span aria-hidden="true">↓</span></a></div></div>
+      <div id="history-section" class="history-section" hidden><div class="history-heading"><h3>Letzte Scans</h3><span>Auf diesem Rechner gespeichert</span></div><div id="history" class="history"></div></div>
+    </section>
+  </main>
+  <footer class="page-footer"><span>D600 SCAN STUDIO</span><span>Ein neuer Platz für deine Papierstücke.</span></footer>
+</body>
+</html>
